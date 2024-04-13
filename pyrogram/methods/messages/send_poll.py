@@ -22,6 +22,7 @@ from typing import Union, List, Optional
 import pyrogram
 from pyrogram import raw, utils
 from pyrogram import types, enums
+from .business_session import get_session
 
 
 class SendPoll:
@@ -50,6 +51,7 @@ class SendPoll:
         quote_entities: List["types.MessageEntity"] = None,
         quote_offset: int = None,
         schedule_date: datetime = None,
+        business_connection_id: str = None,
         reply_markup: Union[
             "types.InlineKeyboardMarkup",
             "types.ReplyKeyboardMarkup",
@@ -146,6 +148,9 @@ class SendPoll:
             schedule_date (:py:obj:`~datetime.datetime`, *optional*):
                 Date when the message will be automatically sent.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection on behalf of which the message will be sent.
+
             reply_markup (:obj:`~pyrogram.types.InlineKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardRemove` | :obj:`~pyrogram.types.ForceReply`, *optional*):
                 Additional interface options. An object for an inline keyboard, custom reply keyboard,
                 instructions to remove reply keyboard or to force a reply from the user.
@@ -164,52 +169,64 @@ class SendPoll:
 
         quote_text, quote_entities = (await utils.parse_text_entities(self, quote_text, parse_mode, quote_entities)).values()
 
-        r = await self.invoke(
-            raw.functions.messages.SendMedia(
-                peer=await self.resolve_peer(chat_id),
-                media=raw.types.InputMediaPoll(
-                    poll=raw.types.Poll(
-                        id=self.rnd_id(),
-                        question=question,
-                        answers=[
-                            raw.types.PollAnswer(text=text, option=bytes([i]))
-                            for i, text in enumerate(options)
-                        ],
-                        closed=is_closed,
-                        public_voters=not is_anonymous,
-                        multiple_choice=allows_multiple_answers,
-                        quiz=type == enums.PollType.QUIZ or False,
-                        close_period=open_period,
-                        close_date=utils.datetime_to_timestamp(close_date)
-                    ),
-                    correct_answers=[bytes([correct_option_id])] if correct_option_id is not None else None,
-                    solution=solution,
-                    solution_entities=solution_entities or []
+        rpc = raw.functions.messages.SendMedia(
+            peer=await self.resolve_peer(chat_id),
+            media=raw.types.InputMediaPoll(
+                poll=raw.types.Poll(
+                    id=self.rnd_id(),
+                    question=question,
+                    answers=[
+                        raw.types.PollAnswer(text=text, option=bytes([i]))
+                        for i, text in enumerate(options)
+                    ],
+                    closed=is_closed,
+                    public_voters=not is_anonymous,
+                    multiple_choice=allows_multiple_answers,
+                    quiz=type == enums.PollType.QUIZ or False,
+                    close_period=open_period,
+                    close_date=utils.datetime_to_timestamp(close_date)
                 ),
-                message="",
-                silent=disable_notification,
-                reply_to=utils.get_reply_to(
-                    reply_to_message_id=reply_to_message_id,
-                    message_thread_id=message_thread_id,
-                    reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
-                    quote_text=quote_text,
-                    quote_entities=quote_entities,
-                    quote_offset=quote_offset,
-                ),
-                random_id=self.rnd_id(),
-                schedule_date=utils.datetime_to_timestamp(schedule_date),
-                noforwards=protect_content,
-                reply_markup=await reply_markup.write(self) if reply_markup else None
-            )
+                correct_answers=[bytes([correct_option_id])] if correct_option_id is not None else None,
+                solution=solution,
+                solution_entities=solution_entities or []
+            ),
+            message="",
+            silent=disable_notification,
+            reply_to=utils.get_reply_to(
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
+                quote_text=quote_text,
+                quote_entities=quote_entities,
+                quote_offset=quote_offset,
+            ),
+            random_id=self.rnd_id(),
+            schedule_date=utils.datetime_to_timestamp(schedule_date),
+            noforwards=protect_content,
+            reply_markup=await reply_markup.write(self) if reply_markup else None
         )
+
+        session = await get_session(self, business_connection_id)
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    connection_id=business_connection_id,
+                    query=rpc
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
 
         for i in r.updates:
             if isinstance(i, (raw.types.UpdateNewMessage,
                               raw.types.UpdateNewChannelMessage,
-                              raw.types.UpdateNewScheduledMessage)):
+                              raw.types.UpdateNewScheduledMessage,
+                              raw.types.UpdateBotNewBusinessMessage)):
                 return await types.Message._parse(
                     self, i.message,
                     {i.id: i for i in r.users},
                     {i.id: i for i in r.chats},
-                    is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage)
+                    is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage),
+                    business_connection_id=getattr(i, "connection_id", None)
                 )

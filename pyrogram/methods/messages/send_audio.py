@@ -28,6 +28,7 @@ from pyrogram import types
 from pyrogram import utils
 from pyrogram.errors import FilePartMissing
 from pyrogram.file_id import FileType
+from .business_session import get_session
 
 
 class SendAudio:
@@ -53,6 +54,7 @@ class SendAudio:
         quote_offset: int = None,
         schedule_date: datetime = None,
         protect_content: bool = None,
+        business_connection_id: str = None,
         reply_markup: Union[
             "types.InlineKeyboardMarkup",
             "types.ReplyKeyboardMarkup",
@@ -141,6 +143,9 @@ class SendAudio:
 
             protect_content (``bool``, *optional*):
                 Protects the contents of the sent message from forwarding and saving.
+
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection on behalf of which the message will be sent.
 
             reply_markup (:obj:`~pyrogram.types.InlineKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardRemove` | :obj:`~pyrogram.types.ForceReply`, *optional*):
                 Additional interface options. An object for an inline keyboard, custom reply keyboard,
@@ -243,11 +248,12 @@ class SendAudio:
 
             quote_text, quote_entities = (await utils.parse_text_entities(self, quote_text, parse_mode, quote_entities)).values()
 
+            session = await get_session(self, business_connection_id)
+
             while True:
                 try:
                     peer = await self.resolve_peer(chat_id)
-                    r = await self.invoke(
-                        raw.functions.messages.SendMedia(
+                    rpc = raw.functions.messages.SendMedia(
                             peer=peer,
                             media=media,
                             silent=disable_notification or None,
@@ -266,19 +272,30 @@ class SendAudio:
                             reply_markup=await reply_markup.write(self) if reply_markup else None,
                             **await utils.parse_text_entities(self, caption, parse_mode, caption_entities)
                         )
-                    )
+
+                    if business_connection_id:
+                        r = await session.invoke(
+                            raw.functions.InvokeWithBusinessConnection(
+                                connection_id=business_connection_id,
+                                query=rpc
+                            )
+                        )
+                    else:
+                        r = await self.invoke(rpc)
                 except FilePartMissing as e:
                     await self.save_file(audio, file_id=file.id, file_part=e.value)
                 else:
                     for i in r.updates:
                         if isinstance(i, (raw.types.UpdateNewMessage,
                                           raw.types.UpdateNewChannelMessage,
-                                          raw.types.UpdateNewScheduledMessage)):
+                                          raw.types.UpdateNewScheduledMessage,
+                                          raw.types.UpdateBotNewBusinessMessage)):
                             return await types.Message._parse(
                                 self, i.message,
                                 {i.id: i for i in r.users},
                                 {i.id: i for i in r.chats},
-                                is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage)
+                                is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage),
+                                business_connection_id=getattr(i, "connection_id", None)
                             )
         except StopTransmission:
             return None

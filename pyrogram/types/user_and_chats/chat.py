@@ -73,6 +73,9 @@ class Chat(Object):
         is_stories_unavailable (``bool``, *optional*):
             True, if this chat stories is unavailable.
 
+        is_business_bot (``bool``, *optional*):
+            True, if this bot can connect to business account.
+
         title (``str``, *optional*):
             Title, for supergroups, channels and basic group chats.
 
@@ -197,6 +200,7 @@ class Chat(Object):
         is_support: bool = None,
         is_stories_hidden: bool = None,
         is_stories_unavailable: bool = None,
+        is_business_bot: bool = None,
         title: str = None,
         username: str = None,
         usernames: List["types.Username"] = None,
@@ -243,6 +247,7 @@ class Chat(Object):
         self.is_support = is_support
         self.is_stories_hidden = is_stories_hidden
         self.is_stories_unavailable = is_stories_unavailable
+        self.is_business_bot = is_business_bot
         self.title = title
         self.username = username
         self.usernames = usernames
@@ -285,6 +290,9 @@ class Chat(Object):
             is_scam=getattr(user, "scam", None),
             is_fake=getattr(user, "fake", None),
             is_support=getattr(user, "support", None),
+            is_stories_hidden=getattr(user, "stories_hidden", None),
+            is_stories_unavailable=getattr(user, "stories_unavailable", None),
+            is_business_bot=getattr(user, "bot_business", None),
             username=user.username or (user.usernames[0].username if user.usernames else None),
             usernames=types.List([types.Username._parse(r) for r in user.usernames]) or None,
             first_name=user.first_name,

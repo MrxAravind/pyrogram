@@ -20,13 +20,15 @@ from typing import Union
 
 import pyrogram
 from pyrogram import raw, enums
+from .business_session import get_session
 
 
 class SendChatAction:
     async def send_chat_action(
         self: "pyrogram.Client",
         chat_id: Union[int, str],
-        action: "enums.ChatAction"
+        action: "enums.ChatAction",
+        business_connection_id: str = None
     ) -> bool:
         """Tell the other party that something is happening on your side.
 
@@ -40,6 +42,9 @@ class SendChatAction:
 
             action (:obj:`~pyrogram.enums.ChatAction`):
                 Type of action to broadcast.
+
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection on behalf of which the message will be sent.
 
         Returns:
             ``bool``: On success, True is returned.
@@ -72,9 +77,21 @@ class SendChatAction:
         else:
             action = action.value()
 
-        return await self.invoke(
-            raw.functions.messages.SetTyping(
-                peer=await self.resolve_peer(chat_id),
-                action=action
-            )
+        rpc = raw.functions.messages.SetTyping(
+            peer=await self.resolve_peer(chat_id),
+            action=action
         )
+
+        session = await get_session(self, business_connection_id)
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    connection_id=business_connection_id,
+                    query=rpc
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
+
+        return bool(r)

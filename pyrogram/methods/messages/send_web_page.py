@@ -22,6 +22,8 @@ from typing import Union, List, Optional
 import pyrogram
 from pyrogram import raw, utils, enums
 from pyrogram import types
+from .business_session import get_session
+
 
 class SendWebPage:
     async def send_web_page(
@@ -44,6 +46,7 @@ class SendWebPage:
         quote_offset: int = None,
         schedule_date: datetime = None,
         protect_content: bool = None,
+        business_connection_id: str = None,
         reply_markup: Union[
             "types.InlineKeyboardMarkup",
             "types.ReplyKeyboardMarkup",
@@ -119,6 +122,9 @@ class SendWebPage:
             protect_content (``bool``, *optional*):
                 Protects the contents of the sent message from forwarding and saving.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection on behalf of which the message will be sent.
+
             reply_markup (:obj:`~pyrogram.types.InlineKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardMarkup` | :obj:`~pyrogram.types.ReplyKeyboardRemove` | :obj:`~pyrogram.types.ForceReply`, *optional*):
                 Additional interface options. An object for an inline keyboard, custom reply keyboard,
                 instructions to remove reply keyboard or to force a reply from the user.
@@ -154,33 +160,43 @@ class SendWebPage:
         if not url:
             raise ValueError("URL not specified")
 
-        r = await self.invoke(
-            raw.functions.messages.SendMedia(
-                peer=await self.resolve_peer(chat_id),
-                silent=disable_notification or None,
-                reply_to=utils.get_reply_to(
-                    reply_to_message_id=reply_to_message_id,
-                    message_thread_id=message_thread_id,
-                    reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
-                    reply_to_story_id=reply_to_story_id,
-                    quote_text=quote_text,
-                    quote_entities=quote_entities,
-                    quote_offset=quote_offset,
-                ),
-                random_id=self.rnd_id(),
-                schedule_date=utils.datetime_to_timestamp(schedule_date),
-                reply_markup=await reply_markup.write(self) if reply_markup else None,
-                message=message,
-                media=raw.types.InputMediaWebPage(
-                    url=url,
-                    force_large_media=prefer_large_media,
-                    force_small_media=prefer_small_media
-                ),
-                invert_media=show_above_text,
-                entities=entities,
-                noforwards=protect_content
-            )
+        rpc = raw.functions.messages.SendMedia(
+            peer=await self.resolve_peer(chat_id),
+            silent=disable_notification or None,
+            reply_to=utils.get_reply_to(
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
+                reply_to_story_id=reply_to_story_id,
+                quote_text=quote_text,
+                quote_entities=quote_entities,
+                quote_offset=quote_offset,
+            ),
+            random_id=self.rnd_id(),
+            schedule_date=utils.datetime_to_timestamp(schedule_date),
+            reply_markup=await reply_markup.write(self) if reply_markup else None,
+            message=message,
+            media=raw.types.InputMediaWebPage(
+                url=url,
+                force_large_media=prefer_large_media,
+                force_small_media=prefer_small_media
+            ),
+            invert_media=show_above_text,
+            entities=entities,
+            noforwards=protect_content
         )
+
+        session = await get_session(self, business_connection_id)
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    connection_id=business_connection_id,
+                    query=rpc
+                )
+            )
+        else:
+            r = await self.invoke(rpc)
 
         if isinstance(r, raw.types.UpdateShortSentMessage):
             peer = await self.resolve_peer(chat_id)
@@ -212,10 +228,12 @@ class SendWebPage:
         for i in r.updates:
             if isinstance(i, (raw.types.UpdateNewMessage,
                               raw.types.UpdateNewChannelMessage,
-                              raw.types.UpdateNewScheduledMessage)):
+                              raw.types.UpdateNewScheduledMessage,
+                              raw.types.UpdateBotNewBusinessMessage)):
                 return await types.Message._parse(
                     self, i.message,
                     {i.id: i for i in r.users},
                     {i.id: i for i in r.chats},
-                    is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage)
+                    is_scheduled=isinstance(i, raw.types.UpdateNewScheduledMessage),
+                    business_connection_id=getattr(i, "connection_id", None)
                 )

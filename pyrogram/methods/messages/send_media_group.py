@@ -28,6 +28,7 @@ from pyrogram import types
 from pyrogram import utils
 from pyrogram import enums
 from pyrogram.file_id import FileType
+from .business_session import get_session
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class SendMediaGroup:
         schedule_date: datetime = None,
         protect_content: bool = None,
         show_above_text: bool = None,
+        business_connection_id: str = None
     ) -> List["types.Message"]:
         """Send a group of photos or videos as an album.
 
@@ -109,6 +111,9 @@ class SendMediaGroup:
                 If True, link preview will be shown above the message text.
                 Otherwise, the link preview will be shown below the message text.
 
+            business_connection_id (``str``, *optional*):
+                Unique identifier of the business connection on behalf of which the message will be sent.
+
         Returns:
             List of :obj:`~pyrogram.types.Message`: On success, a list of the sent messages is returned.
 
@@ -138,7 +143,8 @@ class SendMediaGroup:
                                 media=raw.types.InputMediaUploadedPhoto(
                                     file=await self.save_file(i.media),
                                     spoiler=i.has_spoiler
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -157,7 +163,8 @@ class SendMediaGroup:
                                 media=raw.types.InputMediaPhotoExternal(
                                     url=i.media,
                                     spoiler=i.has_spoiler
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -178,7 +185,8 @@ class SendMediaGroup:
                             media=raw.types.InputMediaUploadedPhoto(
                                 file=await self.save_file(i.media),
                                 spoiler=i.has_spoiler
-                            )
+                            ),
+                            business_connection_id=business_connection_id
                         )
                     )
 
@@ -211,7 +219,8 @@ class SendMediaGroup:
                                         ),
                                         raw.types.DocumentAttributeFilename(file_name=os.path.basename(i.media))
                                     ]
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -230,7 +239,8 @@ class SendMediaGroup:
                                 media=raw.types.InputMediaDocumentExternal(
                                     url=i.media,
                                     spoiler=i.has_spoiler
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -263,7 +273,8 @@ class SendMediaGroup:
                                     ),
                                     raw.types.DocumentAttributeFilename(file_name=getattr(i.media, "name", "video.mp4"))
                                 ]
-                            )
+                            ),
+                            business_connection_id=business_connection_id
                         )
                     )
 
@@ -293,7 +304,8 @@ class SendMediaGroup:
                                         ),
                                         raw.types.DocumentAttributeFilename(file_name=os.path.basename(i.media))
                                     ]
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -310,7 +322,8 @@ class SendMediaGroup:
                                 peer=await self.resolve_peer(chat_id),
                                 media=raw.types.InputMediaDocumentExternal(
                                     url=i.media
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -339,7 +352,8 @@ class SendMediaGroup:
                                     ),
                                     raw.types.DocumentAttributeFilename(file_name=getattr(i.media, "name", "audio.mp3"))
                                 ]
-                            )
+                            ),
+                            business_connection_id=business_connection_id
                         )
                     )
 
@@ -363,7 +377,8 @@ class SendMediaGroup:
                                     attributes=[
                                         raw.types.DocumentAttributeFilename(file_name=os.path.basename(i.media))
                                     ]
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -380,7 +395,8 @@ class SendMediaGroup:
                                 peer=await self.resolve_peer(chat_id),
                                 media=raw.types.InputMediaDocumentExternal(
                                     url=i.media
-                                )
+                                ),
+                                business_connection_id=business_connection_id
                             )
                         )
 
@@ -406,7 +422,8 @@ class SendMediaGroup:
                                 attributes=[
                                     raw.types.DocumentAttributeFilename(file_name=getattr(i.media, "name", "file.zip"))
                                 ]
-                            )
+                            ),
+                            business_connection_id=business_connection_id
                         )
                     )
 
@@ -431,26 +448,42 @@ class SendMediaGroup:
         quote_text, quote_entities = (await utils.parse_text_entities(self, quote_text, parse_mode, quote_entities)).values()
 
         peer = await self.resolve_peer(chat_id)
-        r = await self.invoke(
-            raw.functions.messages.SendMultiMedia(
-                peer=peer,
-                multi_media=multi_media,
-                silent=disable_notification or None,
-                reply_to=utils.get_reply_to(
-                    reply_to_message_id=reply_to_message_id,
-                    message_thread_id=message_thread_id,
-                    reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
-                    reply_to_story_id=reply_to_story_id,
-                    quote_text=quote_text,
-                    quote_entities=quote_entities,
-                    quote_offset=quote_offset,
-                ),
-                schedule_date=utils.datetime_to_timestamp(schedule_date),
-                noforwards=protect_content,
-                invert_media=show_above_text
+        rpc = raw.functions.messages.SendMultiMedia(
+            peer=peer,
+            multi_media=multi_media,
+            silent=disable_notification or None,
+            reply_to=utils.get_reply_to(
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                reply_to_peer=await self.resolve_peer(reply_to_chat_id) if reply_to_chat_id else None,
+                reply_to_story_id=reply_to_story_id,
+                quote_text=quote_text,
+                quote_entities=quote_entities,
+                quote_offset=quote_offset,
             ),
-            sleep_threshold=60
+            schedule_date=utils.datetime_to_timestamp(schedule_date),
+            noforwards=protect_content,
+            invert_media=show_above_text
         )
+
+        session = await get_session(self, business_connection_id)
+
+        if business_connection_id:
+            r = await session.invoke(
+                raw.functions.InvokeWithBusinessConnection(
+                    connection_id=business_connection_id,
+                    query=rpc
+                ),
+                timeout=60
+            )
+        else:
+            r = await self.invoke(rpc, timeout=60)
+
+        conn_id = None
+
+        for i in r.updates:
+            if getattr(i, "connection_id", None):
+                conn_id = i.connection_id
 
         return await utils.parse_messages(
             self,
@@ -458,10 +491,12 @@ class SendMediaGroup:
                 messages=[m.message for m in filter(
                     lambda u: isinstance(u, (raw.types.UpdateNewMessage,
                                              raw.types.UpdateNewChannelMessage,
-                                             raw.types.UpdateNewScheduledMessage)),
+                                             raw.types.UpdateNewScheduledMessage,
+                                             raw.types.UpdateBotNewBusinessMessage)),
                     r.updates
                 )],
                 users=r.users,
                 chats=r.chats
-            )
+            ),
+            business_connection_id=conn_id
         )

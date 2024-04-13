@@ -17,6 +17,7 @@
 #  along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
 
 from .birthday import Birthday
+from .business_connection import BusinessConnection
 from .business_info import BusinessInfo
 from .business_message import BusinessMessage
 from .business_recipients import BusinessRecipients
@@ -51,6 +52,7 @@ from .video_chat_started import VideoChatStarted
 
 __all__ = [
     "Birthday",
+    "BusinessConnection",
     "BusinessInfo",
     "BusinessMessage",
     "BusinessRecipients",
